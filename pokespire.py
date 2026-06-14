@@ -1,6 +1,6 @@
 """
-PokéSpire v8.0 – Desktop Grand Edition & Pokédex Engine
-• Behobener Card-AttributeError & Sauberes Desktop-Layout
+PokéSpire v8.1 – Desktop Grand Edition (Syntax Fixed)
+• Behobener SyntaxError bei der PokéAPI-Namenszuweisung
 • Integrierter Pokédex (Zählt Kills, Tode, Sichtungen über Sessions hinweg)
 • 10 brandneue, interaktive Zufallsevents
 • Dynamische PokéAPI-Moves & Typen-Wechselwirkungen
@@ -11,7 +11,7 @@ import random
 import requests
 from typing import List, Optional, Dict, Tuple
 
-st.set_page_config(page_title="PokéSpire v8.0", page_icon="⚔️", layout="wide")
+st.set_page_config(page_title="PokéSpire v8.1", page_icon="⚔️", layout="wide")
 
 # ───────────────────────── POKÉAPI TRANSLATION ─────────────────────────
 POKEMON_DE_TO_API: Dict[str, str] = {
@@ -185,6 +185,7 @@ STARTER_CARDS = {
     "Wasser": [Card("Tackle", 8, 0, "Normal"), Card("Blubber", 10, 4, "Wasser"), Card("Panzerschutz", 0, 11, "Wasser")]
 }
 
+# Erweitertes Gegner-Lineup
 ACT_ENEMIES = {
     1: ["Rattfratz", "Zubat", "Taubsi", "Raupy", "Mauzi"],
     2: ["Rattikarl", "Golbat", "Tauboga", "Fukano", "Machollo"],
@@ -231,7 +232,6 @@ with st.sidebar:
 if st.session_state.phase == "start":
     st.markdown("# ⚔️ PokéSpire – Desktop Pro")
     
-    # Pokedex-Anzeige im Startbildschirm
     with st.expander("📖 Nationaler Pokédex öffnen"):
         if not st.session_state.pokedex:
             st.info("Noch keine Pokémon auf deiner Reise gesichtet!")
@@ -260,7 +260,6 @@ elif st.session_state.phase == "map":
     p = st.session_state.player
     st.markdown(f"## 🗺️ Akt {p.act} — Pfadkarte (Wähle deine Route)")
     
-    # Pokédex-Button während des Runs
     with st.expander("📖 Pokédex einsehen"):
         for pk, s in st.session_state.pokedex.items():
             st.markdown(f"• **{pk}** — Gesehen: {s['gesehen']} | Besiegt: {s['besiegt']} | K.O.s kassiert: {s['verloren']}")
@@ -293,7 +292,159 @@ elif st.session_state.phase == "map":
                     
                     if node["type"] in ["combat", "boss"]:
                         de_name = ACT_BOSSES[p.act] if node["type"] == "boss" else random.choice(ACT_ENEMIES[p.act])
-                        register_pokedex(de_name, "gesehen") # Pokedex-Sichtung
+                        register_pokedex(de_name, "gesehen")
                         
                         api_data = get_pokemon_api_data(de_name)
-                        api_name = POKEMON_DE_TO_API.get(de_name.lower(), de_name
+                        api_name = POKEMON_DE_TO_API.get(de_name.lower(), de_name.lower())
+                        moves = fetch_pokemon_moves(api_name)
+                        
+                        st.session_state.enemy = {
+                            "name": de_name, "hp": 160 if node["type"]=="boss" else random.randint(40, 60),
+                            "max_hp": 160 if node["type"]=="boss" else 60,
+                            "type": "Normal" if node["type"]=="boss" else "Wasser",
+                            "attacks_list": moves, "intent": random.choice(moves), "api_data": api_data,
+                            "is_boss": (node["type"] == "boss")
+                        }
+                        st.session_state.hand = random.sample(p.deck, min(5, len(p.deck)))
+                        st.session_state.energy = 3
+                        st.session_state.block = 0
+                        st.session_state.phase = "combat"
+                    elif node["type"] == "event": st.session_state.phase = "event"
+                    elif node["type"] == "shop": st.session_state.phase = "shop"
+                    else: st.session_state.phase = "rest"
+                    st.rerun()
+
+elif st.session_state.phase == "combat":
+    enemy = st.session_state.enemy
+    p = st.session_state.player
+    active = p.team[0]
+    
+    st.markdown(f"## ⚔️ SCHLACHTFIELD")
+    c_p, c_mid, c_e = st.columns([5, 1, 5])
+    
+    with c_p:
+        st.markdown(f"#### 👤 {active.name}")
+        st.image(get_sprite_url(get_pokemon_api_data(active.species), active.species), width=200)
+        st.markdown(hp_bar(active.hp, active.max_hp), unsafe_allow_html=True)
+        st.markdown(f"🛡️ Block: **{st.session_state.block}** | ⚡ Energie: **{st.session_state.energy}/3**")
+        
+    with c_mid: st.markdown("<h2 style='text-align:center;margin-top:100px;'>VS</h2>", unsafe_allow_html=True)
+        
+    with c_e:
+        st.markdown(f"#### 👾 Wildes {enemy['name']}")
+        st.image(get_sprite_url(enemy["api_data"], enemy["name"]), width=200)
+        st.markdown(hp_bar(enemy["hp"], enemy["max_hp"]), unsafe_allow_html=True)
+        st.markdown(f"📢 Absicht: **{enemy['intent'][0]}** (💥 {enemy['intent'][1]} DMG)")
+
+    st.markdown("---")
+    st.markdown("### 🃏 Deine Hand:")
+    card_cols = st.columns(len(st.session_state.hand))
+    for idx, card in enumerate(list(st.session_state.hand)):
+        with card_cols[idx]:
+            st.markdown(f"<div class='card-ui' style='border-top: 4px solid {type_color(card.type)}'><b>{card.name}</b> ({card.cost}⚡)<br><small>{card.describe()}</small></div>", unsafe_allow_html=True)
+            if st.button("Spielen", key=f"c_{idx}", disabled=(st.session_state.energy < card.cost), use_container_width=True):
+                st.session_state.energy -= card.cost
+                st.session_state.hand.pop(idx)
+                
+                if card.damage > 0:
+                    mult, msg = get_damage_multiplier(card.type, enemy["type"])
+                    fdmg = int(card.damage * mult)
+                    enemy["hp"] = max(0, enemy["hp"] - fdmg)
+                    log(f"⚔️ {card.name} haut reizvoll rein! {fdmg} DMG. {msg}")
+                if card.block > 0:
+                    st.session_state.block += card.block
+                    
+                if enemy["hp"] <= 0:
+                    log(f"🏆 {enemy['name']} pulverisiert!")
+                    register_pokedex(enemy["name"], "besiegt")
+                    p.gold += random.randint(20, 40)
+                    
+                    if enemy["is_boss"]:
+                        p.act += 1
+                        if p.act > 3: st.session_state.phase = "win"
+                        else:
+                            st.session_state.game_map = generate_sts_map(p.act)
+                            st.session_state.current_row = -1
+                            st.session_state.current_col = -1
+                            st.session_state.phase = "map"
+                    else: st.session_state.phase = "map"
+                    st.rerun()
+                st.rerun()
+                
+    if st.button("⏭️ Zug beenden", type="primary", use_container_width=True):
+        _, edmg, _ = enemy["intent"]
+        absorbed = min(st.session_state.block, edmg)
+        active.hp = max(0, active.hp - (edmg - absorbed))
+        
+        if active.hp <= 0:
+            register_pokedex(enemy["name"], "verloren")
+            st.session_state.phase = "gameover"
+        else:
+            st.session_state.block = 0
+            st.session_state.energy = 3
+            st.session_state.hand = random.sample(p.deck, min(5, len(p.deck)))
+            enemy["intent"] = random.choice(enemy["attacks_list"])
+        st.rerun()
+
+elif st.session_state.phase == "event":
+    st.markdown("<h2>❓ Zufallsbegegnung im hohen Gras</h2>", unsafe_allow_html=True)
+    p = st.session_state.player
+    active = p.team[0]
+    
+    events = [
+        ("⛏️ Das Fossilien-Labor", "Ein Forscher bietet dir an, ein altes Helix-Fossil im Tausch gegen dein Gold zu reanimieren.", "Gold spenden (-40 Gold)", lambda: setattr(p, "gold", max(0, p.gold - 40))),
+        ("😴 Der schlafende Relaxo", "Ein riesiges Pokémon blockiert den Weg. Du spielst auf der Poké-Flöte. Es rollt sich weg und verliert glitzernden Staub.", "Staub einsammeln (+30 Gold)", lambda: setattr(p, "gold", p.gold + 30)),
+        ("🎰 Münzamulett-Casino", "Du findest eine Spielhalle in Prismania City. Setzt du dein Gold aufs Spiel?", "Alles auf Rot (50% Chance auf +50 Gold / -30 Gold)", lambda: setattr(p, "gold", p.gold + 50 if random.random() > 0.5 else max(0, p.gold - 30))),
+        ("🎣 Angler-Glück", "Ein Angler zieht ein schimmerndes Item aus dem Wasser. Er schenkt es dir aus Mitleid.", "Item annehmen (+25 Max HP)", lambda: setattr(active, "max_hp", active.max_hp + 25)),
+        ("🎒 Die verlorene Packtasche", "Du stolperst über einen Rucksack voller verbeulter Pokébälle.", "Ausschlachten (+40 Gold)", lambda: setattr(p, "gold", p.gold + 40)),
+        ("👻 Der Pokémon-Turm", "Ein unheimlicher Geist jagt dir Angst ein. Dein Pokémon verliert Lebenspunkte, lernt aber Fokus.", "Fliehen (-15 HP)", lambda: setattr(active, "hp", max(1, active.hp - 15))),
+        ("🚲 Der Fahrrad-Weg", "Du wirst von einer Biker-Gang herausgefordert. Du zahlst Wegezoll, um Ärger zu vermeiden.", "Zoll zahlen (-25 Gold)", lambda: setattr(p, "gold", max(0, p.gold - 25))),
+        ("🌋 Heißes Bad auf Cinnabar", "Dein Pokémon relaxt in den heißen Thermalquellen.", "Vollheilung!", lambda: setattr(active, "hp", active.max_hp)),
+        ("🍯 Meister-Koch", "Ein Wanderer füttert dein Pokémon mit selbstgemachtem Poké-Curry.", "Essen (+15 HP, +10 Max HP)", lambda: (setattr(active, "max_hp", active.max_hp + 10), setattr(active, "hp", min(active.max_hp, active.hp + 25)))),
+        ("⚡ Kraftwerk-Kurzschluss", "Ein wildes Magnetilo löst eine Schockwelle aus. Du verlierst etwas Gold durch verbrannte Ausrüstung.", "Verluste hinnehmen (-15 Gold)", lambda: setattr(p, "gold", max(0, p.gold - 15)))
+    ]
+    
+    if "current_ev" not in st.session_state:
+        st.session_state.current_ev = random.choice(events)
+        
+    ev_title, ev_desc, btn_txt, ev_action = st.session_state.current_ev
+    st.markdown(f"### {ev_title}")
+    st.markdown(ev_desc)
+    
+    if st.button(btn_txt, use_container_width=True):
+        ev_action()
+        del st.session_state["current_ev"]
+        st.session_state.phase = "map"
+        st.rerun()
+
+elif st.session_state.phase == "rest":
+    st.markdown("## 🏕️ Pokémon-Center Zeltlager")
+    active = st.session_state.player.team[0]
+    if st.button("Trank verabreichen (+30 HP)", use_container_width=True):
+        active.hp = min(active.max_hp, active.hp + 30)
+        st.session_state.phase = "map"
+        st.rerun()
+
+elif st.session_state.phase == "shop":
+    st.markdown("## 🏪 Poké-Markt")
+    st.info("Ausverkauft! Der Händler wartet auf die nächste Lieferung.")
+    if st.button("Zurück zur Route", use_container_width=True):
+        st.session_state.phase = "map"
+        st.rerun()
+
+elif st.session_state.phase == "gameover":
+    st.markdown("<h1 style='text-align:center; color:#f56565;'>💀 Run beendet! Dein Pokémon ging K.O.</h1>", unsafe_allow_html=True)
+    st.info("Dein Pokédex bleibt für die nächste Runde erhalten!")
+    if st.button("🔄 Neues Spiel starten", use_container_width=True, type="primary"):
+        for k in list(st.session_state.keys()):
+            if k != "pokedex": del st.session_state[k]
+        st.session_state.phase = "start"
+        st.rerun()
+
+elif st.session_state.phase == "win":
+    st.markdown("<h1 style='text-align:center; color:#48bb78;'>🏆 DU BIST DER CHAMPION!</h1>", unsafe_allow_html=True)
+    if st.button("🔄 Neue Herausforderung", use_container_width=True, type="primary"):
+        for k in list(st.session_state.keys()):
+            if k != "pokedex": del st.session_state[k]
+        st.session_state.phase = "start"
+        st.rerun()
