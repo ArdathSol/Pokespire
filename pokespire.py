@@ -1,12 +1,11 @@
 import streamlit as st
 import random
 import json
-import os
 from typing import List, Optional
 
-st.set_page_config(page_title="PokéSpire", page_icon="⚔️", layout="wide")
+st.set_page_config(page_title="PokéSpire", page_icon="⚔️", layout="centered")
 
-# ====================== CARD & POKEMON ======================
+# ====================== DATA ======================
 class Card:
     def __init__(self, name: str, damage: int, block: int, poke_type: str, cost: int = 1):
         self.name = name
@@ -16,7 +15,7 @@ class Card:
         self.cost = cost
 
     def __str__(self):
-        return f"[{self.cost}⚡] {self.name} - {self.damage} DMG | {self.block} Block"
+        return f"[{self.cost}⚡] {self.name} — {self.damage} DMG | {self.block} Block"
 
 class Pokemon:
     def __init__(self, name: str, poke_type: str, cards: List[Card], evolution: Optional[str] = None, evolves_at: int = 0):
@@ -52,7 +51,6 @@ POKEMON_DB = {
     ]),
 }
 
-# ====================== PLAYER ======================
 class Player:
     def __init__(self):
         self.deck: List[Card] = []
@@ -68,120 +66,157 @@ class Player:
         self.team.append(pokemon)
         self.deck.extend(pokemon.cards)
 
-def init_session():
-    if "player" not in st.session_state:
-        st.session_state.player = None
-    if "in_combat" not in st.session_state:
-        st.session_state.in_combat = False
-    if "current_enemy" not in st.session_state:
-        st.session_state.current_enemy = None
-    if "hand" not in st.session_state:
-        st.session_state.hand = []
-    if "block" not in st.session_state:
-        st.session_state.block = 0
-
-init_session()
+# ====================== SESSION ======================
+if "player" not in st.session_state:
+    st.session_state.player = None
+if "in_combat" not in st.session_state:
+    st.session_state.in_combat = False
+if "enemy" not in st.session_state:
+    st.session_state.enemy = None
+if "hand" not in st.session_state:
+    st.session_state.hand = []
+if "energy" not in st.session_state:
+    st.session_state.energy = 3
+if "block" not in st.session_state:
+    st.session_state.block = 0
+if "message" not in st.session_state:
+    st.session_state.message = ""
 
 # ====================== UI ======================
 st.title("⚔️ PokéSpire")
-st.caption("Pokémon Roguelike im Stil von Slay the Spire")
+st.caption("Pokémon Roguelike • Slay the Spire Style")
 
-# Sidebar
 with st.sidebar:
     st.header("Menü")
-    if st.button("🏠 Hauptmenü"):
-        st.session_state.player = None
-        st.session_state.in_combat = False
+    if st.button("🏠 Hauptmenü", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            if key != "player":
+                del st.session_state[key]
         st.rerun()
 
-# Main Game
 if st.session_state.player is None:
+    st.subheader("Willkommen in PokéSpire!")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🆕 Neues Spiel", type="primary", use_container_width=True):
+        if st.button("🆕 Neues Spiel starten", type="primary", use_container_width=True):
             player = Player()
             starters = ["Glumanda", "Schiggy", "Bisasam"]
-            choice = st.selectbox("Wähle dein Starter-Pokémon", starters)
+            choice = st.selectbox("Wähle dein Starter-Pokémon", starters, key="starter_select")
             player.add_pokemon(POKEMON_DB[choice])
             st.session_state.player = player
             st.rerun()
-    with col2:
-        if st.button("📂 Spiel laden", use_container_width=True):
-            st.info("Laden wird noch entwickelt (Session-State wird bei Neustart gelöscht)")
 else:
-    player = st.session_state.player
-    st.write(f"**Region {player.region} — Stockwerk {player.floor}**")
-    st.progress(player.hp / player.max_hp, text=f"HP: {player.hp}/{player.max_hp} | Gold: {player.gold}")
+    player: Player = st.session_state.player
 
-    # Navigation
-    tab1, tab2, tab3, tab4 = st.tabs(["🌍 Karte", "👥 Team", "🃏 Deck", "💾 Speichern"])
+    # Status Bar
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("HP", f"{player.hp}/{player.max_hp}")
+    with col2:
+        st.metric("Gold", player.gold)
+    with col3:
+        st.metric("Region", f"{player.region}-{player.floor}")
 
-    with tab1:
-        if st.session_state.in_combat:
-            enemy = st.session_state.current_enemy
-            st.error(f"⚔️ Kampf gegen **{enemy.name}** (HP: {enemy.hp}/{enemy.max_hp})")
+    if st.session_state.in_combat and st.session_state.enemy:
+        enemy = st.session_state.enemy
+        st.error(f"**⚔️ Kampf gegen {enemy['name']}** | HP: {enemy['hp']}/{enemy['max_hp']}")
 
-            st.write("**Deine Hand:**")
-            cols = st.columns(len(st.session_state.hand))
-            for i, card in enumerate(st.session_state.hand):
-                with cols[i]:
-                    if st.button(str(card), key=f"card_{i}"):
-                        # Play card
-                        energy = 3  # simplified
+        # Enemy Intent
+        st.info(f"💥 Gegner bereitet **{enemy['intent'].name}** vor!")
+
+        st.write("### Deine Hand")
+        cols = st.columns(len(st.session_state.hand) or 1)
+        for i, card in enumerate(st.session_state.hand):
+            with cols[i]:
+                if st.button(str(card), key=f"play_{i}", use_container_width=True):
+                    if st.session_state.energy >= card.cost:
+                        st.session_state.energy -= card.cost
                         st.session_state.hand.pop(i)
                         if card.damage > 0:
-                            enemy.hp -= card.damage
+                            enemy["hp"] -= card.damage
+                            st.session_state.message = f"✅ {card.name} macht {card.damage} Schaden!"
                         if card.block > 0:
                             st.session_state.block += card.block
+                            st.session_state.message = f"🛡️ {card.name} gibt {card.block} Block!"
                         st.rerun()
 
-            if st.button("Zug beenden"):
-                # Enemy attack (simplified)
-                dmg = 10 - st.session_state.block
-                if dmg > 0:
-                    player.hp -= max(0, dmg)
+        # Controls
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Zug beenden", type="secondary"):
+                # Enemy attacks
+                dmg = max(0, enemy["intent"].damage - st.session_state.block)
+                player.hp -= dmg
+                st.session_state.message = f"💥 Gegner macht {dmg} Schaden!"
+
+                # New turn
+                st.session_state.energy = 3
                 st.session_state.block = 0
-                st.session_state.hand = player.deck[:5]
+                st.session_state.hand = random.sample(player.deck, min(5, len(player.deck)))
+                
+                # Enemy new intent
+                enemy["intent"] = random.choice(enemy["moves"])
+
+                if enemy["hp"] <= 0:
+                    st.success("🎉 Sieg!")
+                    player.gold += random.randint(25, 40)
+                    for p in player.team:
+                        p.battles_won += 1
+                    st.session_state.in_combat = False
+                    player.floor += 1
                 st.rerun()
 
-            if enemy.hp <= 0:
-                st.success("🎉 Sieg!")
-                player.gold += 30
-                for p in player.team:
-                    p.battles_won += 1
+        with c2:
+            if st.button("Aufgeben", type="primary"):
                 st.session_state.in_combat = False
-                player.floor += 1
+
+        if st.session_state.message:
+            st.write(st.session_state.message)
+
+    else:
+        # Exploration
+        st.subheader("Wohin möchtest du gehen?")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            if st.button("⚔️ Normaler Kampf", use_container_width=True):
+                st.session_state.in_combat = True
+                moves = [Card("Tackle", 9, 0, "Normal"), Card("Biss", 11, 0, "Normal")]
+                st.session_state.enemy = {
+                    "name": "Wildes Rattfratz",
+                    "hp": 45,
+                    "max_hp": 45,
+                    "moves": moves,
+                    "intent": random.choice(moves)
+                }
+                st.session_state.hand = random.sample(player.deck, min(5, len(player.deck)))
+                st.rerun()
+        with col2:
+            if st.button("🔥 Elite Kampf", use_container_width=True):
+                st.session_state.in_combat = True
+                moves = [Card("Flammenwurf", 16, 0, "Feuer", 2)]
+                st.session_state.enemy = {
+                    "name": "Elite-Trainer",
+                    "hp": 75,
+                    "max_hp": 75,
+                    "moves": moves,
+                    "intent": random.choice(moves)
+                }
+                st.session_state.hand = random.sample(player.deck, min(5, len(player.deck)))
                 st.rerun()
 
-        else:
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                if st.button("⚔️ Normaler Kampf", use_container_width=True):
-                    st.session_state.in_combat = True
-                    st.session_state.current_enemy = type('obj', (object,), {'name': 'Wildes Rattfratz', 'hp': 45, 'max_hp': 45})()
-                    st.session_state.hand = player.deck[:5]
-                    st.rerun()
-            with col2:
-                if st.button("🔥 Elite Kampf", use_container_width=True):
-                    st.session_state.in_combat = True
-                    st.session_state.current_enemy = type('obj', (object,), {'name': 'Elite-Trainer', 'hp': 75, 'max_hp': 75})()
-                    st.session_state.hand = player.deck[:5]
-                    st.rerun()
+        # Team & Deck
+        tab1, tab2 = st.tabs(["👥 Team", "🃏 Deck"])
+        with tab1:
+            for p in player.team:
+                evo = f" → {p.evolution}" if p.can_evolve() else ""
+                st.write(f"**{p.name}** Lv.{p.level} ({p.battles_won} Siege){evo}")
+        with tab2:
+            for card in player.deck:
+                st.write(str(card))
 
-    with tab2:
-        st.write("### Dein Team")
-        for p in player.team:
-            evo = f" → {p.evolution}" if p.can_evolve() else ""
-            st.write(f"**{p.name}** Lv.{p.level} ({p.battles_won} Siege){evo}")
+# Win Condition
+if player.hp > 0 and player.region >= 4 and player.floor > 5:
+    st.balloons()
+    st.success("🎊 **Du hast die Pokémon-Liga besiegt!**")
 
-    with tab3:
-        st.write("### Dein Deck")
-        for card in player.deck:
-            st.write(str(card))
-
-    with tab4:
-        if st.button("💾 Aktuellen Stand speichern (Session)"):
-            st.success("Fortschritt in diesem Browser-Tab gespeichert!")
-
-# Footer
-st.caption("PokéSpire Streamlit Edition • Einfach auf GitHub hochladen und mit Streamlit Cloud verbinden")
+st.caption("PokéSpire Streamlit • Card Game Mechanics")
