@@ -1,5 +1,5 @@
 """
-PokéSpire v7.0 – Ultimate Mobile-Responsive Edition
+PokéSpire v7.1 – Ultimate Mobile-Responsive Edition (Syntax Fixed)
 • Dynamisches Laden von echten Pokémon-Attacken via PokéAPI
 • Vertikales Mobile-First Karten-Layout (Perfekt für Smartphones)
 • Massiv erweiterter Gegner- und Event-Pool
@@ -13,7 +13,7 @@ from typing import List, Optional, Dict, Tuple
 
 # Mobile Viewport & Page Config
 st.set_page_config(
-    page_title="PokéSpire v7.0", 
+    page_title="PokéSpire v7.1", 
     page_icon="⚔️", 
     layout="centered", # 'centered' sorgt für eine perfekte Mobile-Breite
     initial_sidebar_state="collapsed"
@@ -72,8 +72,6 @@ def fetch_pokemon_moves(api_name: str) -> List[Tuple[str, int, str]]:
             extracted_moves = []
             for m in chosen_moves:
                 move_name = m["move"]["name"].replace("-", " ").title()
-                # Da detaillierte Move-API-Abfragen das Laden auf dem Handy verlangsamen, 
-                # würfeln wir balancierte Kampfwerte aus, nutzen aber den echten Namen!
                 dmg = random.randint(8, 22)
                 extracted_moves.append((move_name, dmg, "Normal"))
             return extracted_moves
@@ -84,7 +82,7 @@ def fetch_pokemon_moves(api_name: str) -> List[Tuple[str, int, str]]:
 # ───────────────────────── MOBILE RESPONSIVE UI CSS ─────────────────────────
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;900&family=Rajdhani:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght=600;900&family=Rajdhani:wght=600;700&display=swap');
 
 html, body, .stApp {
     background: #050510 !important;
@@ -199,7 +197,6 @@ STARTER_CARDS = {
     "Wasser": [Card("Tackle", 8, 0, "Normal"), Card("Blubber", 9, 4, "Wasser"), Card("Panzerschutz", 0, 10, "Wasser")]
 }
 
-# Massiv erweiterte Gegnerlisten pro Akt
 ACT_ENEMIES = {
     1: ["Rattfratz", "Zubat", "Taubsi", "Raupy", "Mauzi"],
     2: ["Rattikarl", "Golbat", "Tauboga", "Fukano", "Machollo"],
@@ -281,9 +278,12 @@ elif st.session_state.phase == "map":
                     st.session_state.energy = 3
                     st.session_state.block = 0
                     st.session_state.phase = "combat"
-                elif node["type"] == "event": st.session_state.phase = "event"
-                elif node["type"] == "shop"]: st.session_state.phase = "shop"
-                else: st.session_state.phase = "rest"
+                elif node["type"] == "event": 
+                    st.session_state.phase = "event"
+                elif node["type"] == "shop": 
+                    st.session_state.phase = "shop"
+                else: 
+                    st.session_state.phase = "rest"
                 st.rerun()
 
 elif st.session_state.phase == "combat":
