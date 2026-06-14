@@ -66,6 +66,10 @@ class Player:
         self.battles_won_total = 0
         self.relics: List[Relic] = []
 
+    def add_pokemon(self, pokemon: Pokemon):
+        self.team.append(pokemon)
+        self.deck.extend(pokemon.cards)
+
 # ====================== SESSION ======================
 for key in ["player", "in_combat", "enemy", "hand", "energy", "block"]:
     if key not in st.session_state:
@@ -75,7 +79,7 @@ for key in ["player", "in_combat", "enemy", "hand", "energy", "block"]:
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(180deg, #0a0a1f, #1a1a2e); color: #e0e0ff; }
-    .metric-label { color: #aaa; }
+    .metric { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -91,7 +95,7 @@ with st.sidebar:
 
 if st.session_state.player is None or (st.session_state.player and st.session_state.player.hp <= 0):
     if st.session_state.player and st.session_state.player.hp <= 0:
-        st.error("💀 Game Over")
+        st.error("💀 Game Over - Deine Reise endet hier.")
     
     lang = st.selectbox("Sprache / Language", ["Deutsch", "English"])
     st.session_state.language = "de" if lang == "Deutsch" else "en"
@@ -112,13 +116,15 @@ if st.session_state.player is None or (st.session_state.player and st.session_st
         cards = [
             Card("Tackle", 10, 4, "Normal", 1),
             Card("Growl", 0, 6, "Normal", 1),
-            Card("Rankenhieb" if choice=="bulbasaur" else "Glut" if choice=="charmander" else "Blubber", 15, 0, "Grass" if choice=="bulbasaur" else "Fire" if choice=="charmander" else "Water", 2)
+            Card("Rankenhieb" if choice=="bulbasaur" else "Glut" if choice=="charmander" else "Blubber", 
+                 15, 0, "Pflanze" if choice=="bulbasaur" else "Feuer" if choice=="charmander" else "Wasser", 2)
         ]
-        p = Pokemon(name_de, "Pflanze" if choice=="bulbasaur" else "Feuer" if choice=="charmander" else "Wasser", 
-                    cards, "ivysaur" if choice=="bulbasaur" else "charmeleon" if choice=="charmander" else "wartortle")
+        p = Pokemon(name_de, 
+                    "Pflanze" if choice=="bulbasaur" else "Feuer" if choice=="charmander" else "Wasser", 
+                    cards, 
+                    "ivysaur" if choice=="bulbasaur" else "charmeleon" if choice=="charmander" else "wartortle")
         player.add_pokemon(p)
-        # Start-Relikt
-        player.relics.append(Relic("Anfänger-Amulett", "Erhöht Freundschaftsgewinn um 20%"))
+        player.relics.append(Relic("Anfänger-Amulett", "Erhöht Freundschaftsgewinn"))
         st.session_state.player = player
         st.rerun()
 
@@ -147,7 +153,7 @@ else:
             st.error(f"⚔️ Kampf gegen **{enemy['name']}**")
             st.info(f"💥 Vorbereitet: {enemy['intent'].name}")
 
-        # Energie
+        # Energie Anzeige
         st.write(f"**Energie:** {'⚡' * st.session_state.energy} **({st.session_state.energy}/3)**")
 
         st.subheader("🃏 Deine Hand")
