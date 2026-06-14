@@ -1,6 +1,6 @@
 """
-PokéSpire v9.1 – Slay the Spire 2 Edition (TypeError Fixed)
-• Fix des Konstruktor-Kartenfehlers (Retain/temp_energy sauber integriert)
+PokéSpire v9.2 – Slay the Spire 2 Edition (SessionState Fixed)
+• Fix des SessionState AttributeError beim Erststart
 • Automatisches Zugende bei 0 Energie
 • Reparierte und voll sichtbare Attacken-Anzeige mit Typen
 • STS2 Mechaniken (Retain-Karten & Temporäre Energie)
@@ -13,7 +13,7 @@ import random
 import requests
 from typing import List, Optional, Dict, Tuple
 
-st.set_page_config(page_title="PokéSpire v9.1", page_icon="⚔️", layout="wide")
+st.set_page_config(page_title="PokéSpire v9.2", page_icon="⚔️", layout="wide")
 
 # ───────────────────────── POKÉAPI TRANSLATION ─────────────────────────
 POKEMON_DE_TO_API: Dict[str, str] = {
@@ -120,6 +120,11 @@ st.markdown(CSS, unsafe_allow_html=True)
 # ───────────────────────── ENGINES & STATS ─────────────────────────
 if "pokedex" not in st.session_state: st.session_state.pokedex = {}
 
+# 🛠️ SAFE INITIALIZATION: Verhindert den AttributeError vor dem ersten Render-Zyklus
+if "phase" not in st.session_state: st.session_state.phase = "start"
+if "player" not in st.session_state: st.session_state.player = None
+if "map_seed" not in st.session_state: st.session_state.map_seed = random.randint(1, 99999)
+
 def register_pokedex(pkmn: str, stat_type: str):
     if pkmn not in st.session_state.pokedex:
         st.session_state.pokedex[pkmn] = {"gesehen": 0, "besiegt": 0, "verloren": 0}
@@ -147,7 +152,6 @@ def log(msg: str):
 
 # ───────────────────────── CLASSES ─────────────────────────
 class Card:
-    # 🛠️ FIX: Konstruktor akzeptiert jetzt flexibel retain und temp_energy standardmäßig
     def __init__(self, name: str, damage: int, block: int, poke_type: str, cost: int = 1, retain: bool = False, temp_energy: int = 0):
         self.name = name
         self.damage = damage
@@ -177,7 +181,7 @@ class Pokemon:
         self.level = 1
         self.hp = 65
         self.max_hp = 65
-        self.evo_de = evo_de
+        self.repo_form = evo_de
 
 class Player:
     def __init__(self):
@@ -188,7 +192,6 @@ class Player:
         self.debt_energy = 0 
 
 # ───────────────────────── DATA POOLS ─────────────────────────
-# 🛠️ FIX: Parameterkleinschreibung im Starter-Deck korrigiert
 STARTER_CARDS = {
     "Pflanze": [Card("Tackle", 8, 0, "Normal"), Card("Rankenhieb", 12, 0, "Pflanze"), Card("Synthese", 0, 9, "Pflanze"), Card("Wurzelketten", 6, 6, "Pflanze", retain=True)],
     "Feuer": [Card("Tackle", 8, 0, "Normal"), Card("Glut", 14, 0, "Feuer"), Card("Overdrive", 18, 0, "Feuer", cost=2, temp_energy=1)],
@@ -221,7 +224,6 @@ def execute_enemy_turn():
     active = p.team[0]
     
     _, edmg, etype = enemy["intent"]
-    
     mult, msg = get_damage_multiplier(etype, active.type)
     final_edmg = int(edmg * mult)
     
@@ -246,7 +248,24 @@ def execute_enemy_turn():
         st.session_state.hand = retained_cards + random.sample(p.deck, min(needed, len(p.deck)))
         enemy["intent"] = random.choice(enemy["attacks_list"])
 
-# ───────────────────────── MAIN ENGINE ROUTER ─────────────────────────
+# ───────────────────────── SIDEBAR ─────────────────────────
+with st.sidebar:
+    st.markdown("## 🎒 TRAINER PANEL")
+    if st.session_state.player:
+        p = st.session_state.player
+        st.markdown(f"**📍 Akt:** {p.act} | **💰 Gold:** {p.gold} ₽")
+        st.markdown("---")
+        for poke in p.team:
+            st.markdown(f"<b style='color:{type_color(poke.type)}'>{poke.name}</b>", unsafe_allow_html=True)
+            st.markdown(hp_bar(poke.hp, poke.max_hp), unsafe_allow_html=True)
+            
+        if "game_log" in st.session_state:
+            st.markdown("---")
+            st.markdown("**📜 Log:**")
+            for l in st.session_state.game_log[:4]:
+                st.markdown(f"<small style='color:#a0aec0'>{l}</small>", unsafe_allow_html=True)
+
+# ───────────────────────── ROUTER ENGINE ─────────────────────────
 
 if st.session_state.phase == "start":
     st.markdown("# ⚔️ PokéSpire – Slay the Spire 2 Edition")
@@ -290,7 +309,7 @@ elif st.session_state.phase == "map":
             
             is_clickable = False
             if cur_row == -1 and row_idx == 0: is_clickable = True
-            elif row_idx == cur_row + 1 and (abs(col_idx - col_col) <= 1 or cur_row == 7): is_clickable = True
+            elif row_idx == cur_row + 1 and (abs(col_idx - cur_col) <= 1 or cur_row == 7): is_clickable = True
             
             status_class = "map-node"
             if is_clickable: status_class += " node-active"
@@ -347,7 +366,7 @@ elif st.session_state.phase == "combat":
     with c_mid: st.markdown("<h2 style='text-align:center;margin-top:100px;'>VS</h2>", unsafe_allow_html=True)
         
     with c_e:
-        st.markdown(f"#### 👾 Wildes {enemy['name']}")
+        st.markdown(f"#### 👾 Wildes {enemy['name']} <span class='status-badge' style='background:{type_color(enemy['type'])}33; color:{type_color(enemy['type'])}'>{enemy['type'].upper()}</span>", unsafe_allow_html=True)
         st.image(get_sprite_url(enemy["api_data"], enemy["name"]), width=200)
         st.markdown(hp_bar(enemy["hp"], enemy["max_hp"]), unsafe_allow_html=True)
         st.markdown(f"📢 Nächster Move: **{enemy['intent'][0]}** (💥 {enemy['intent'][1]} DMG, Typ: {enemy['intent'][2]})")
@@ -358,7 +377,6 @@ elif st.session_state.phase == "combat":
     card_cols = st.columns(len(st.session_state.hand))
     for idx, card in enumerate(list(st.session_state.hand)):
         with card_cols[idx]:
-            # 🛠️ HIER SIND DIE ATTACKEN UND TYPEN GEIL RENDERT UND VOLL SICHTBAR
             st.markdown(f"""<div class='card-ui' style='border-top: 5px solid {type_color(card.type)}'>
                 <div class='card-cost'>{card.cost}⚡</div>
                 <div class='card-name'>{card.name}</div>
@@ -398,7 +416,6 @@ elif st.session_state.phase == "combat":
                     else: st.session_state.phase = "map"
                     st.rerun()
                 
-                # AUTOMATISCHES ZUGENDE
                 if st.session_state.energy <= 0:
                     log("⚡ Keine Energie mehr! Gegnerischer Zug startet automatisch...")
                     execute_enemy_turn()
