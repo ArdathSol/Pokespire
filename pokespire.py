@@ -1,5 +1,6 @@
 import streamlit as st
 import random
+import requests
 from typing import List, Optional
 
 st.set_page_config(page_title="PokéSpire", page_icon="⚔️", layout="wide")
@@ -11,7 +12,27 @@ if "language" not in st.session_state:
 def t(de: str, en: str):
     return de if st.session_state.language == "de" else en
 
-# ====================== DATA ======================
+# ====================== POKÉAPI ======================
+@st.cache_data(ttl=3600)
+def get_sprite_url(name: str):
+    try:
+        r = requests.get(f"https://pokeapi.co/api/v2/pokemon/{name.lower()}", timeout=10)
+        data = r.json()
+        return (data["sprites"]["other"]["official-artwork"]["front_default"] or 
+                data["sprites"]["front_default"] or "https://via.placeholder.com/220?text=???")
+    except:
+        return "https://via.placeholder.com/220?text=???"
+
+# ====================== EVOLUTION RULES ======================
+EVOLUTION_RULES = {
+    "bulbasaur": {"de": "Bisasam", "evo": "ivysaur", "method": "level", "param": 16},
+    "ivysaur": {"de": "Bisaknosp", "evo": "venusaur", "method": "level", "param": 32},
+    "charmander": {"de": "Glumanda", "evo": "charmeleon", "method": "level", "param": 16},
+    "charmeleon": {"de": "Glutexo", "evo": "charizard", "method": "level", "param": 36},
+    "squirtle": {"de": "Schiggy", "evo": "wartortle", "method": "level", "param": 16},
+    "wartortle": {"de": "Schillok", "evo": "blastoise", "method": "level", "param": 36},
+}
+
 class Card:
     def __init__(self, name: str, damage: int, block: int, poke_type: str, cost: int = 1):
         self.name = name
@@ -21,133 +42,160 @@ class Card:
         self.cost = cost
 
     def __str__(self):
-        return f"[{self.cost}⚡] {self.name} — {self.damage} DMG | {self.block} Block"
+        dmg = f"{self.damage} DMG" if self.damage > 0 else ""
+        blk = f"{self.block} Block" if self.block > 0 else ""
+        return f"[{self.cost}⚡] {self.name} — {dmg} {blk}".strip(" —")
 
 class Pokemon:
-    def __init__(self, name: str, poke_type: str, cards: List[Card], evolution: Optional[str] = None, evolves_at: int = 0):
+    def __init__(self, name: str, poke_type: str, cards: List[Card], evolution: Optional[str] = None, 
+                 evo_method: str = "level", evo_param: int = 16):
         self.name = name
         self.type = poke_type
         self.cards = cards
         self.level = 1
         self.evolution = evolution
-        self.evolves_at = evolves_at
+        self.evo_method = evo_method
+        self.evo_param = evo_param
         self.battles_won = 0
+        self.friendship = 70
 
     def can_evolve(self):
-        return self.evolution is not None and self.battles_won >= self.evolves_at
+        if not self.evolution:
+            return False
+        if self.evo_method == "level":
+            return self.level >= self.evo_param or self.battles_won >= 5
+        return False
 
-POKEMON_DB = { ... }  # (gleiche Daten wie vorher – aus Platzgründen gekürzt, nimm die vorherige Version)
-
-POKEMON_IMAGES = {
-    "Glumanda": "https://assets.pokemon.com/assets/cms2/img/pokedex/full/004.png",
-    "Schiggy": "https://assets.pokemon.com/assets/cms2/img/pokedex/full/007.png",
-    "Bisasam": "https://assets.pokemon.com/assets/cms2/img/pokedex/full/001.png",
-    "Glurak": "https://assets.pokemon.com/assets/cms2/img/pokedex/full/006.png",
-    "Turtok": "https://assets.pokemon.com/assets/cms2/img/pokedex/full/009.png",
-    "Bisaflor": "https://assets.pokemon.com/assets/cms2/img/pokedex/full/003.png",
-    "Rattfratz": "https://assets.pokemon.com/assets/cms2/img/pokedex/full/019.png",
-    "Elite-Trainer": "https://i.imgur.com/5z5z5z5.png"  # Platzhalter
-}
-
-# ====================== PLAYER ======================
 class Player:
     def __init__(self):
         self.deck: List[Card] = []
         self.team: List[Pokemon] = []
         self.max_hp = 80
         self.hp = self.max_hp
-        self.gold = 30
+        self.gold = 35
         self.region = 1
         self.floor = 1
         self.battles_won_total = 0
+        self.stones = []  # z.B. ["fire-stone"]
 
     def add_pokemon(self, pokemon: Pokemon):
         self.team.append(pokemon)
         self.deck.extend(pokemon.cards)
 
     def check_evolutions(self):
-        evolved = False
-        for p in self.team:
+        for i, p in enumerate(self.team):
             if p.can_evolve():
-                new_poke = POKEMON_DB.get(p.evolution)
-                if new_poke:
-                    idx = self.team.index(p)
-                    old_name = p.name
-                    self.team[idx] = Pokemon(new_poke.name, new_poke.type, new_poke.cards.copy(), 
-                                           new_poke.evolution, new_poke.evolves_at)
-                    self.team[idx].battles_won = p.battles_won
-                    self.deck = [c for c in self.deck if c.name not in [card.name for card in p.cards]]
-                    self.deck.extend(self.team[idx].cards)
-                    st.success(f"🌟 {old_name} hat sich zu **{new_poke.name}** entwickelt!")
-                    evolved = True
-        return evolved
+                evo_info = EVOLUTION_RULES.get(p.evolution.lower(), {})
+                if not evo_info:
+                    continue
+                old_name = p.name
+                new_name = evo_info["de"]
+
+                new_cards = [Card(c.name, int(c.damage * 1.4), int(c.block * 1.25), c.type, c.cost) for c in p.cards]
+                
+                self.team[i] = Pokemon(new_name, p.type, new_cards, None, "level", 999)
+                self.team[i].level = p.level + 3
+                self.team[i].friendship = min(255, p.friendship + 40)
+                
+                self.deck = [c for c in self.deck if c.name not in [card.name for card in p.cards]]
+                self.deck.extend(self.team[i].cards)
+                
+                st.balloons()
+                st.success(f"✨ **{old_name}** evolviert zu **{new_name}**!")
+                return True
+        return False
+
+# ====================== STARTER ======================
+STARTERS = {
+    "bulbasaur": {"de": "Bisasam", "evo": "ivysaur"},
+    "charmander": {"de": "Glumanda", "evo": "charmeleon"},
+    "squirtle": {"de": "Schiggy", "evo": "wartortle"}
+}
+
+def create_starter(key: str):
+    # Vereinfachte echte Moves
+    move_names = ["Tackle", "Growl", "Vine Whip", "Ember", "Water Gun", "Bubble"]
+    cards = []
+    for _ in range(5):
+        name = random.choice(move_names)
+        damage = random.randint(8, 22)
+        block = random.randint(0, 10) if random.random() < 0.4 else 0
+        cost = 1 if damage < 15 else 2
+        cards.append(Card(name, damage, block, "Normal", cost))
+    
+    evo_info = EVOLUTION_RULES.get(key, {})
+    return Pokemon(STARTERS[key]["de"], "Pflanze" if key == "bulbasaur" else "Feuer" if key == "charmander" else "Wasser",
+                   cards, evo_info.get("evo"), "level", evo_info.get("param", 16))
 
 # ====================== SESSION ======================
-for key in ["player", "in_combat", "enemy", "hand", "energy", "block", "message", "path_history"]:
+for key in ["player", "in_combat", "enemy", "hand", "energy", "block"]:
     if key not in st.session_state:
-        st.session_state[key] = None if key == "player" else False if key == "in_combat" else [] if key == "path_history" else 0 if key in ["energy","block"] else ""
+        st.session_state[key] = None if key == "player" else False if "combat" in key else 3 if key == "energy" else 0
 
-# ====================== UI ======================
+# ====================== MAIN UI ======================
 st.title("⚔️ PokéSpire")
-st.caption(t("Pokémon Roguelike • Slay the Spire Style", "Pokémon Roguelike • Slay the Spire Style"))
+st.caption("Roguelike mit echter Evolution (Level + Freundschaft)")
 
-# Hauptmenü / Neustart
+with st.sidebar:
+    if st.button("🔄 Neustart"):
+        for k in list(st.session_state.keys()):
+            if k != "language":
+                del st.session_state[k]
+        st.rerun()
+
 if st.session_state.player is None or (st.session_state.player and st.session_state.player.hp <= 0):
     if st.session_state.player and st.session_state.player.hp <= 0:
-        st.error("💀 GAME OVER")
-        st.balloons()
+        st.error("💀 Game Over")
     
-    col_lang, _ = st.columns([1,4])
-    with col_lang:
-        lang = st.selectbox("Sprache / Language", ["Deutsch", "English"])
-        st.session_state.language = "de" if lang == "Deutsch" else "en"
+    lang = st.selectbox("Sprache / Language", ["Deutsch", "English"])
+    st.session_state.language = "de" if lang == "Deutsch" else "en"
 
-    st.subheader(t("Willkommen in PokéSpire!", "Welcome to PokéSpire!"))
-    starters = ["Glumanda", "Schiggy", "Bisasam"]
-    choice = st.selectbox(t("Starter-Pokémon wählen", "Choose Starter"), starters)
-    
-    col1, col2 = st.columns([1,2])
+    st.subheader(t("Wähle dein Starter-Pokémon", "Choose Starter Pokémon"))
+    starter_key = st.selectbox("Starter", list(STARTERS.keys()), format_func=lambda x: STARTERS[x]["de"])
+
+    pokemon = create_starter(starter_key)
+    sprite = get_sprite_url(starter_key)
+
+    col1, col2 = st.columns([1, 2])
     with col1:
-        st.image(POKEMON_IMAGES[choice], width=220)
+        st.image(sprite, width=260)
     with col2:
-        p = POKEMON_DB[choice]
-        st.write(f"**{choice}** — {p.type}")
-        for card in p.cards:
-            st.write("•", card)
-    
-    if st.button(t("🎮 Neues Spiel starten", "🎮 Start New Game"), type="primary"):
+        st.write(f"**{pokemon.name}**")
+        st.write(f"Evolution: {pokemon.evolution}")
+        st.write("**Attacken:**")
+        for c in pokemon.cards:
+            st.write("•", c)
+
+    if st.button(t("🎮 Spiel starten", "Start Game"), type="primary", use_container_width=True):
         player = Player()
-        player.add_pokemon(POKEMON_DB[choice])
+        player.add_pokemon(pokemon)
         st.session_state.player = player
-        st.session_state.in_combat = False
         st.rerun()
 
 else:
-    player = st.session_state.player
+    player: Player = st.session_state.player
 
     # Status
     c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric("HP", f"{max(0, player.hp)}/{player.max_hp}")
-    with c2: st.metric(t("Gold", "Gold"), player.gold)
-    with c3: st.metric("Region", f"{player.region}-{player.floor}")
-    with c4: st.metric(t("Siege", "Wins"), player.battles_won_total)
+    with c1: st.metric("❤️ HP", f"{max(0, player.hp)}/{player.max_hp}")
+    with c2: st.metric("💰 Gold", player.gold)
+    with c3: st.metric("📍 Region", f"{player.region} - {player.floor}")
+    with c4: st.metric("🏆 Siege", player.battles_won_total)
 
-    # === KAMPF ===
     if st.session_state.in_combat and st.session_state.enemy:
         enemy = st.session_state.enemy
-        col_e1, col_e2 = st.columns([1,3])
+        col_e1, col_e2 = st.columns([1, 3])
         with col_e1:
-            st.image(POKEMON_IMAGES.get(enemy["name"].split()[-1], "https://via.placeholder.com/150"), width=180)
+            st.image(enemy.get("sprite", ""), width=200)
         with col_e2:
-            st.error(f"⚔️ {t('Kampf gegen', 'Battle vs')} **{enemy['name']}**")
-            st.info(f"💥 {t('Vorbereitete Attacke', 'Intent')}: **{enemy['intent'].name}**")
+            st.error(f"⚔️ Kampf gegen **{enemy['name']}**")
+            st.info(f"💥 Vorbereitet: {enemy['intent'].name}")
 
-        # Hand
-        st.subheader(t("Deine Hand", "Your Hand"))
+        st.subheader("🃏 Deine Hand")
         cols = st.columns(len(st.session_state.hand) or 1)
         for i, card in enumerate(st.session_state.hand):
             with cols[i]:
-                if st.button(str(card), key=f"card{i}"):
+                if st.button(str(card), key=f"play_{i}"):
                     if st.session_state.energy >= card.cost:
                         st.session_state.energy -= card.cost
                         st.session_state.hand.pop(i)
@@ -157,100 +205,54 @@ else:
                             st.session_state.block += card.block
                         st.rerun()
 
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button(t("Zug beenden", "End Turn"), type="primary"):
-                # Enemy Attack
-                dmg = max(0, enemy["intent"].damage - st.session_state.block)
-                player.hp = max(0, player.hp - dmg)
+        if st.button("Zug beenden", type="primary"):
+            dmg = max(0, enemy["intent"].damage - st.session_state.block)
+            player.hp = max(0, player.hp - dmg)
 
-                # Neue Runde
-                st.session_state.energy = 3
-                st.session_state.block = 0
-                st.session_state.hand = random.sample(player.deck, min(5, len(player.deck)))
-                enemy["intent"] = random.choice(enemy["moves"])
+            st.session_state.energy = 3
+            st.session_state.block = 0
+            st.session_state.hand = random.sample(player.deck, min(5, len(player.deck)))
 
-                if enemy["hp"] <= 0:
-                    st.success(t("🎉 Sieg!", "🎉 Victory!"))
-                    reward = random.randint(25, 45)
-                    player.gold += reward
-                    player.battles_won_total += 1
-                    for p in player.team:
-                        p.battles_won += 1
-                    player.check_evolutions()
-                    st.session_state.in_combat = False
-                    player.floor += 1
-                st.rerun()
+            if enemy["hp"] <= 0:
+                st.success("🎉 Sieg!")
+                player.gold += random.randint(25, 50)
+                player.battles_won_total += 1
+                for p in player.team:
+                    p.battles_won += 1
+                    p.friendship = min(255, p.friendship + random.randint(10, 18))
+                player.check_evolutions()
+                st.session_state.in_combat = False
+                player.floor += 1
+            st.rerun()
 
     else:
-        # === PFAD-AUSWAHL (Slay the Spire Style) ===
-        st.subheader(t("Wähle deinen Pfad", "Choose your Path"))
-        col1, col2, col3, col4, col5 = st.columns(5)
-        
-        with col1:
-            if st.button("⚔️ " + t("Kampf", "Fight"), use_container_width=True):
+        st.subheader("Wähle deinen Pfad")
+        cols = st.columns(4)
+        with cols[0]:
+            if st.button("⚔️ Normaler Kampf", use_container_width=True):
                 st.session_state.in_combat = True
                 st.session_state.enemy = {
-                    "name": t("Wildes Rattfratz", "Wild Rattata"),
-                    "hp": 50, "max_hp": 50,
-                    "moves": [Card("Biss", 11, 0, "Normal"), Card("Tackle", 8, 0, "Normal")],
-                    "intent": Card("Biss", 11, 0, "Normal")
+                    "name": random.choice(["Rattfratz", "Pidgey", "Caterpie"]),
+                    "hp": random.randint(50, 70),
+                    "max_hp": 70,
+                    "sprite": get_sprite_url(random.choice(["rattata", "pidgey", "caterpie"])),
+                    "intent": Card("Tackle", random.randint(10, 18), 0, "Normal", 1)
                 }
                 st.session_state.hand = random.sample(player.deck, min(5, len(player.deck)))
                 st.rerun()
 
-        with col2:
-            if st.button("🔥 " + t("Elite", "Elite"), use_container_width=True):
-                st.session_state.in_combat = True
-                st.session_state.enemy = {
-                    "name": t("Elite-Trainer", "Elite Trainer"),
-                    "hp": 85, "max_hp": 85,
-                    "moves": [Card("Flammenwurf", 16, 0, "Feuer", 2)],
-                    "intent": Card("Flammenwurf", 16, 0, "Feuer", 2)
-                }
-                st.session_state.hand = random.sample(player.deck, min(5, len(player.deck)))
-                st.rerun()
+        st.subheader("👥 Dein Team")
+        for p in player.team:
+            sprite = get_sprite_url(p.name.lower())
+            col_a, col_b = st.columns([1, 4])
+            with col_a:
+                st.image(sprite, width=130)
+            with col_b:
+                evo_text = f" → {p.evolution}" if p.evolution else ""
+                st.write(f"**{p.name}** Lv.{p.level} ({p.battles_won} Siege){evo_text}")
+                st.write(f"Freundschaft: {p.friendship}/255")
 
-        with col3:
-            if st.button("🛒 " + t("Shop", "Shop"), use_container_width=True):
-                st.success(t("Heiltrank gekauft (+35 HP)", "Heal Potion bought (+35 HP)"))
-                player.hp = min(player.max_hp, player.hp + 35)
-                player.gold = max(0, player.gold - 25)
+st.caption("PokéSpire • Level + Freundschaft Evolution")
 
-        with col4:
-            if st.button("🛡️ " + t("Rast", "Rest"), use_container_width=True):
-                heal = 20
-                player.hp = min(player.max_hp, player.hp + heal)
-                st.success(t(f"Du ruhst dich aus (+{heal} HP)", f"You rested (+{heal} HP)"))
-
-        with col5:
-            if st.button("❓ " + t("Event", "Event"), use_container_width=True):
-                if random.random() < 0.6:
-                    new_poke = random.choice(list(POKEMON_DB.keys()))
-                    player.add_pokemon(POKEMON_DB[new_poke])
-                    st.success(f"✨ {new_poke} hat sich deinem Team angeschlossen!")
-
-        # Team & Deck
-        tab1, tab2 = st.tabs([t("👥 Team", "Team"), t("🃏 Deck", "Deck")])
-        with tab1:
-            for p in player.team:
-                st.image(POKEMON_IMAGES.get(p.name, ""), width=130)
-                evo = f" → {p.evolution}" if p.can_evolve() else ""
-                st.write(f"**{p.name}** Lv.{p.level} ({p.battles_won} Siege){evo}")
-
-        with tab2:
-            for card in player.deck:
-                st.write(str(card))
-
-# Win / Game Over
 if st.session_state.player and st.session_state.player.hp <= 0:
-    st.error("💀 " + t("Deine Reise endet hier...", "Your journey ends here..."))
-    if st.button(t("Neues Spiel starten", "Start New Game")):
-        st.session_state.player = None
-        st.rerun()
-
-elif st.session_state.player and st.session_state.player.region >= 4 and st.session_state.player.floor > 6:
-    st.balloons()
-    st.success(t("🎊 Du hast die Pokémon-Liga besiegt!", "🎊 You defeated the Pokémon League!"))
-
-st.caption("PokéSpire • Verbesserte Version")
+    st.error("💀 Deine Reise endet hier...")
