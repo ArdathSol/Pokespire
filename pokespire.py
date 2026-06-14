@@ -1,5 +1,6 @@
 """
-PokéSpire v9.0 – The Slay-the-Spire-2 Update
+PokéSpire v9.1 – Slay the Spire 2 Edition (TypeError Fixed)
+• Fix des Konstruktor-Kartenfehlers (Retain/temp_energy sauber integriert)
 • Automatisches Zugende bei 0 Energie
 • Reparierte und voll sichtbare Attacken-Anzeige mit Typen
 • STS2 Mechaniken (Retain-Karten & Temporäre Energie)
@@ -12,7 +13,7 @@ import random
 import requests
 from typing import List, Optional, Dict, Tuple
 
-st.set_page_config(page_title="PokéSpire v9.0", page_icon="⚔️", layout="wide")
+st.set_page_config(page_title="PokéSpire v9.1", page_icon="⚔️", layout="wide")
 
 # ───────────────────────── POKÉAPI TRANSLATION ─────────────────────────
 POKEMON_DE_TO_API: Dict[str, str] = {
@@ -146,14 +147,15 @@ def log(msg: str):
 
 # ───────────────────────── CLASSES ─────────────────────────
 class Card:
+    # 🛠️ FIX: Konstruktor akzeptiert jetzt flexibel retain und temp_energy standardmäßig
     def __init__(self, name: str, damage: int, block: int, poke_type: str, cost: int = 1, retain: bool = False, temp_energy: int = 0):
         self.name = name
         self.damage = damage
         self.block = block
         self.type = poke_type
         self.cost = cost
-        self.retain = retain          # STS2: Behalten am Zugende
-        self.temp_energy = temp_energy # STS2: Gibt Energie, entzieht sie im nächsten Zug
+        self.retain = retain          
+        self.temp_energy = temp_energy 
 
     def copy(self): return Card(self.name, self.damage, self.block, self.type, self.cost, self.retain, self.temp_energy)
 
@@ -183,11 +185,12 @@ class Player:
         self.team: List[Pokemon] = []
         self.gold = 100
         self.act = 1
-        self.debt_energy = 0 # Überzogene Energie aus STS2 Karten
+        self.debt_energy = 0 
 
 # ───────────────────────── DATA POOLS ─────────────────────────
+# 🛠️ FIX: Parameterkleinschreibung im Starter-Deck korrigiert
 STARTER_CARDS = {
-    "Pflanze": [Card("Tackle", 8, 0, "Normal"), Card("Rankenhieb", 12, 0, "Pflanze"), Card("Synthese", 0, 9, "Pflanze"), Card("Wurzelketten", 6, 6, "Pflanze", Retain=True)],
+    "Pflanze": [Card("Tackle", 8, 0, "Normal"), Card("Rankenhieb", 12, 0, "Pflanze"), Card("Synthese", 0, 9, "Pflanze"), Card("Wurzelketten", 6, 6, "Pflanze", retain=True)],
     "Feuer": [Card("Tackle", 8, 0, "Normal"), Card("Glut", 14, 0, "Feuer"), Card("Overdrive", 18, 0, "Feuer", cost=2, temp_energy=1)],
     "Wasser": [Card("Tackle", 8, 0, "Normal"), Card("Blubber", 10, 5, "Wasser"), Card("Panzerschutz", 0, 12, "Wasser")]
 }
@@ -213,14 +216,12 @@ def generate_sts_map(act: int) -> List[List[Dict]]:
     return grid
 
 def execute_enemy_turn():
-    """Führt den Angriff des Gegners aus und setzt den Zug zurück."""
     enemy = st.session_state.enemy
     p = st.session_state.player
     active = p.team[0]
     
     _, edmg, etype = enemy["intent"]
     
-    # Schadensberechnung am eigenen Pokémon
     mult, msg = get_damage_multiplier(etype, active.type)
     final_edmg = int(edmg * mult)
     
@@ -235,13 +236,11 @@ def execute_enemy_turn():
         register_pokedex(enemy["name"], "verloren")
         st.session_state.phase = "gameover"
     else:
-        # STS2: Berechne Energie unter Berücksichtigung von Schulden aus Vorzügen
         st.session_state.block = 0
         base_energy = 3 - p.debt_energy
         st.session_state.energy = max(1, base_energy)
-        p.debt_energy = 0 # Zurücksetzen
+        p.debt_energy = 0 
         
-        # Handkarten auffüllen (STS2 Retain-Karten bleiben)
         retained_cards = [c for c in st.session_state.hand if c.retain]
         needed = 5 - len(retained_cards)
         st.session_state.hand = retained_cards + random.sample(p.deck, min(needed, len(p.deck)))
@@ -283,7 +282,6 @@ elif st.session_state.phase == "map":
     cur_row = st.session_state.current_row
     cur_col = st.session_state.current_col
     
-    # Verbesserte Map-Ansicht mit klaren Zeilenumbrüchen und Verzweigungen
     for row_idx in range(len(gmap)-1, -1, -1):
         cols = st.columns(3)
         for col_idx in range(3):
@@ -292,7 +290,7 @@ elif st.session_state.phase == "map":
             
             is_clickable = False
             if cur_row == -1 and row_idx == 0: is_clickable = True
-            elif row_idx == cur_row + 1 and (abs(col_idx - cur_col) <= 1 or cur_row == 7): is_clickable = True
+            elif row_idx == cur_row + 1 and (abs(col_idx - col_col) <= 1 or cur_row == 7): is_clickable = True
             
             status_class = "map-node"
             if is_clickable: status_class += " node-active"
@@ -337,7 +335,7 @@ elif st.session_state.phase == "combat":
     p = st.session_state.player
     active = p.team[0]
     
-    st.markdown(f"## ⚔️ SCHLACHTFELD – RUNDE")
+    st.markdown(f"## ⚔️ SCHLACHTFELD")
     c_p, c_mid, c_e = st.columns([5, 1, 5])
     
     with c_p:
@@ -349,7 +347,7 @@ elif st.session_state.phase == "combat":
     with c_mid: st.markdown("<h2 style='text-align:center;margin-top:100px;'>VS</h2>", unsafe_allow_html=True)
         
     with c_e:
-        st.markdown(f"#### 👾 Wildes {enemy['name']} {badge(enemy['type'], type_color(enemy['type']))}", unsafe_allow_html=True)
+        st.markdown(f"#### 👾 Wildes {enemy['name']}")
         st.image(get_sprite_url(enemy["api_data"], enemy["name"]), width=200)
         st.markdown(hp_bar(enemy["hp"], enemy["max_hp"]), unsafe_allow_html=True)
         st.markdown(f"📢 Nächster Move: **{enemy['intent'][0]}** (💥 {enemy['intent'][1]} DMG, Typ: {enemy['intent'][2]})")
@@ -357,10 +355,10 @@ elif st.session_state.phase == "combat":
     st.markdown("---")
     st.markdown("### 🃏 Deine Attacken auf der Hand:")
     
-    # RENDER ENGINE FÜR HANDKARTEN (ALLE DETAILS SICHTBAR!)
     card_cols = st.columns(len(st.session_state.hand))
     for idx, card in enumerate(list(st.session_state.hand)):
         with card_cols[idx]:
+            # 🛠️ HIER SIND DIE ATTACKEN UND TYPEN GEIL RENDERT UND VOLL SICHTBAR
             st.markdown(f"""<div class='card-ui' style='border-top: 5px solid {type_color(card.type)}'>
                 <div class='card-cost'>{card.cost}⚡</div>
                 <div class='card-name'>{card.name}</div>
@@ -372,7 +370,6 @@ elif st.session_state.phase == "combat":
                 st.session_state.energy -= card.cost
                 st.session_state.hand.pop(idx)
                 
-                # STS2 Mechanik: Temporäre Energie / Schulden aufbauen
                 if card.temp_energy > 0:
                     st.session_state.energy += card.temp_energy
                     p.debt_energy += card.temp_energy
@@ -385,7 +382,6 @@ elif st.session_state.phase == "combat":
                 if card.block > 0:
                     st.session_state.block += card.block
                     
-                # Sofortiger Sieges-Check
                 if enemy["hp"] <= 0:
                     log(f"🏆 {enemy['name']} wurde besiegt!")
                     register_pokedex(enemy["name"], "besiegt")
@@ -402,7 +398,7 @@ elif st.session_state.phase == "combat":
                     else: st.session_state.phase = "map"
                     st.rerun()
                 
-                # AUTOMATISCHES ZUGENDE WENN ENERGIE = 0
+                # AUTOMATISCHES ZUGENDE
                 if st.session_state.energy <= 0:
                     log("⚡ Keine Energie mehr! Gegnerischer Zug startet automatisch...")
                     execute_enemy_turn()
