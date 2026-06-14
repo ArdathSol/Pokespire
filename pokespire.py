@@ -70,6 +70,15 @@ class Player:
         self.team.append(pokemon)
         self.deck.extend(pokemon.cards)
 
+# ====================== ENEMY DATA ======================
+ENEMIES = [
+    {"name": "Rattfratz", "api": "rattata"},
+    {"name": "Taubsi", "api": "pidgey"},
+    {"name": "Raupy", "api": "caterpie"},
+    {"name": "Hornliu", "api": "weedle"},
+    {"name": "Piepi", "api": "jigglypuff"},
+]
+
 # ====================== SESSION ======================
 for key in ["player", "in_combat", "enemy", "hand", "energy", "block"]:
     if key not in st.session_state:
@@ -79,12 +88,11 @@ for key in ["player", "in_combat", "enemy", "hand", "energy", "block"]:
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(180deg, #0a0a1f, #1a1a2e); color: #e0e0ff; }
-    .metric { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("⚔️ PokéSpire")
-st.caption(t("Roguelike mit echter Evolution • Level + Freundschaft", "Roguelike with real Evolution"))
+st.caption("Roguelike mit echter Evolution")
 
 with st.sidebar:
     if st.button("🔄 Neustart"):
@@ -94,13 +102,11 @@ with st.sidebar:
         st.rerun()
 
 if st.session_state.player is None or (st.session_state.player and st.session_state.player.hp <= 0):
-    if st.session_state.player and st.session_state.player.hp <= 0:
-        st.error("💀 Game Over - Deine Reise endet hier.")
-    
+    # ... Starter Auswahl (wie vorher) ...
     lang = st.selectbox("Sprache / Language", ["Deutsch", "English"])
     st.session_state.language = "de" if lang == "Deutsch" else "en"
 
-    st.subheader(t("Wähle dein Starter-Pokémon", "Choose Starter Pokémon"))
+    st.subheader("Wähle dein Starter-Pokémon")
     starters = ["bulbasaur", "charmander", "squirtle"]
     choice = st.selectbox("Starter", starters, format_func=lambda x: {"bulbasaur":"Bisasam", "charmander":"Glumanda", "squirtle":"Schiggy"}[x])
 
@@ -111,17 +117,11 @@ if st.session_state.player is None or (st.session_state.player and st.session_st
         name_de = {"bulbasaur":"Bisasam", "charmander":"Glumanda", "squirtle":"Schiggy"}[choice]
         st.write(f"**{name_de}**")
 
-    if st.button(t("🎮 Spiel starten", "Start Game"), type="primary", use_container_width=True):
+    if st.button("🎮 Spiel starten", type="primary", use_container_width=True):
         player = Player()
-        cards = [
-            Card("Tackle", 10, 4, "Normal", 1),
-            Card("Growl", 0, 6, "Normal", 1),
-            Card("Rankenhieb" if choice=="bulbasaur" else "Glut" if choice=="charmander" else "Blubber", 
-                 15, 0, "Pflanze" if choice=="bulbasaur" else "Feuer" if choice=="charmander" else "Wasser", 2)
-        ]
-        p = Pokemon(name_de, 
-                    "Pflanze" if choice=="bulbasaur" else "Feuer" if choice=="charmander" else "Wasser", 
-                    cards, 
+        cards = [Card("Tackle", 10, 4, "Normal", 1), Card("Growl", 0, 6, "Normal", 1),
+                 Card("Rankenhieb" if choice=="bulbasaur" else "Glut" if choice=="charmander" else "Blubber", 15, 0, "Pflanze", 2)]
+        p = Pokemon(name_de, "Pflanze" if choice=="bulbasaur" else "Feuer" if choice=="charmander" else "Wasser", cards, 
                     "ivysaur" if choice=="bulbasaur" else "charmeleon" if choice=="charmander" else "wartortle")
         player.add_pokemon(p)
         player.relics.append(Relic("Anfänger-Amulett", "Erhöht Freundschaftsgewinn"))
@@ -131,16 +131,15 @@ if st.session_state.player is None or (st.session_state.player and st.session_st
 else:
     player = st.session_state.player
 
-    # Status Bar
+    # Status
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.metric("❤️ HP", f"{max(0, player.hp)}/{player.max_hp}")
     with c2: st.metric("💰 Gold", player.gold)
     with c3: st.metric("📍 Region", f"{player.region} - {player.floor}")
     with c4: st.metric("🏆 Siege", player.battles_won_total)
 
-    # Relikte
     if player.relics:
-        with st.expander("🛡️ Deine Relikte"):
+        with st.expander("🛡️ Relikte"):
             for r in player.relics:
                 st.write(f"**{r.name}** — {r.desc}")
 
@@ -153,7 +152,6 @@ else:
             st.error(f"⚔️ Kampf gegen **{enemy['name']}**")
             st.info(f"💥 Vorbereitet: {enemy['intent'].name}")
 
-        # Energie Anzeige
         st.write(f"**Energie:** {'⚡' * st.session_state.energy} **({st.session_state.energy}/3)**")
 
         st.subheader("🃏 Deine Hand")
@@ -184,26 +182,25 @@ else:
                 for p in player.team:
                     p.battles_won += 1
                     p.friendship = min(255, p.friendship + random.randint(12, 20))
-                player.check_evolutions()
+                # player.check_evolutions()  # später aktivieren
                 st.session_state.in_combat = False
                 player.floor += 1
             st.rerun()
 
     else:
         st.subheader("Wähle deinen Pfad")
-        cols = st.columns(4)
-        with cols[0]:
-            if st.button("⚔️ Normaler Kampf", use_container_width=True):
-                st.session_state.in_combat = True
-                st.session_state.enemy = {
-                    "name": random.choice(["Rattfratz", "Taubsi", "Raupy", "Hornliu"]),
-                    "hp": random.randint(50, 75),
-                    "max_hp": 75,
-                    "sprite": get_sprite_url(random.choice(["rattata", "pidgey", "caterpie", "weedle"])),
-                    "intent": Card("Tackle", random.randint(10, 18), 0, "Normal", random.randint(1,2))
-                }
-                st.session_state.hand = random.sample(player.deck, min(5, len(player.deck)))
-                st.rerun()
+        if st.button("⚔️ Normaler Kampf", use_container_width=True):
+            enemy_data = random.choice(ENEMIES)
+            st.session_state.in_combat = True
+            st.session_state.enemy = {
+                "name": enemy_data["name"],
+                "hp": random.randint(50, 75),
+                "max_hp": 75,
+                "sprite": get_sprite_url(enemy_data["api"]),
+                "intent": Card("Tackle", random.randint(10, 18), 0, "Normal", random.randint(1,2))
+            }
+            st.session_state.hand = random.sample(player.deck, min(5, len(player.deck)))
+            st.rerun()
 
         st.subheader("👥 Dein Team")
         for p in player.team:
@@ -216,7 +213,4 @@ else:
                 st.write(f"**{p.name}** Lv.{p.level}{evo}")
                 st.write(f"Freundschaft: {p.friendship}/255")
 
-if st.session_state.player and st.session_state.player.hp <= 0:
-    st.error("💀 Deine Reise endet hier...")
-
-st.caption("PokéSpire • Verbessertes UI + Relikte + Energie")
+st.caption("PokéSpire • Verbessertes UI")
