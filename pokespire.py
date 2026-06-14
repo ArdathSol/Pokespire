@@ -1,9 +1,9 @@
 """
-PokéSpire v4.0 – Ultimate Roguelike Deckbuilder
-• Vollwertige, interaktive Slay-the-Spire-Pfadkarte mit echter Routen-Validierung
-• Modernisiertes Gaming-UI & CSS-Glow-Effekte
-• Vollständig reparierte Kampf-Engine & Gegner-KI
-• Dynamische Pokémon-Entwicklungen und Relikt-System
+PokéSpire v5.0 – Tactical Roguelike Deckbuilder
+• Vollwertige, interaktive Slay-the-Spire-Pfadkarte mit Routen-Validierung
+• Integrierte Typen-Wechselwirkungen (Schadens-Multiplikatoren: 2.0x / 0.5x)
+• Zufällige, lustige Pokémon-Spitznamen bei der Starter-Wahl
+• Vollständig reparierte Kampf-Engine & Node-Überprüfung
 """
 
 import streamlit as st
@@ -11,9 +11,9 @@ import random
 import requests
 from typing import List, Optional, Dict, Tuple
 
-st.set_page_config(page_title="PokéSpire v4.0", page_icon="⚔️", layout="wide")
+st.set_page_config(page_title="PokéSpire v5.0", page_icon="⚔️", layout="wide")
 
-# ───────────────────────── POKÉAPI TRADUCTION ─────────────────────────
+# ───────────────────────── POKÉAPI TRANSLATION ─────────────────────────
 POKEMON_DE_TO_API: Dict[str, str] = {
     "bisasam": "bulbasaur", "bisaknosp": "ivysaur", "bisaflor": "venusaur",
     "glumanda": "charmander", "glutexo": "charmeleon", "glurak": "charizard",
@@ -38,6 +38,13 @@ POKEMON_DE_TO_API: Dict[str, str] = {
     "mewtwo": "mewtwo", "mew": "mew"
 }
 
+# Lustige Pokémon-Spitznamen-Pools nach Typen
+FUNNY_NAMES = {
+    "Pflanze": ["Bisa-Boss", "Salat-Salat", "Kräuter-Karl", "Veggie-Zilla", "Brokkoli", "Gras-Dealer", "UnkrautEx"],
+    "Feuer": ["Glurak-Sucht", "Grillmeister", "ScharfWieFritten", "Tabasco-Tim", "Zunder-Zorro", "Feuerwurst", "Toastbrot"],
+    "Wasser": ["Schiggy-Bump", "Spülmittel", "NasserHeini", "ArielleEnkel", "Wasserschaden", "Zitteraal", "Hydrant"]
+}
+
 @st.cache_data(ttl=3600)
 def get_sprite_url(name: str) -> str:
     api_name = POKEMON_DE_TO_API.get(name.lower(), name.lower())
@@ -57,7 +64,7 @@ def _ph(name: str) -> str:
 # ───────────────────────── MODERN LOOK & CSS ─────────────────────────
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght=500;600;700&display=swap');
 
 html, body, .stApp {
     background: #060612 !important;
@@ -160,6 +167,22 @@ def log(msg: str):
     if "game_log" not in st.session_state: st.session_state.game_log = []
     st.session_state.game_log.insert(0, msg)
 
+# ───────────────────────── TYPE ADVANTAGE LOGIC ─────────────────────────
+def get_damage_multiplier(attack_type: str, defender_type: str) -> Tuple[float, str]:
+    """Berechnet die Pokémon-Typen-Wechselwirkung."""
+    # Sehr effektiv (2.0x)
+    if attack_type == "Feuer" and defender_type == "Pflanze": return 2.0, "🔥 Sehr effektiv!"
+    if attack_type == "Wasser" and defender_type == "Feuer": return 2.0, "💧 Sehr effektiv!"
+    if attack_type == "Pflanze" and defender_type == "Wasser": return 2.0, "🌿 Sehr effektiv!"
+    if attack_type == "Elektro" and defender_type == "Wasser": return 2.0, "⚡ Sehr effektiv!"
+    
+    # Nicht sehr effektiv (0.5x)
+    if attack_type == "Feuer" and defender_type == "Wasser": return 0.5, "🛡️ Nicht sehr effektiv..."
+    if attack_type == "Wasser" and defender_type == "Pflanze": return 0.5, "🛡️ Nicht sehr effektiv..."
+    if attack_type == "Pflanze" and defender_type == "Feuer": return 0.5, "🛡️ Nicht sehr effektiv..."
+    
+    return 1.0, ""
+
 # ───────────────────────── CLASSES ─────────────────────────
 class Card:
     def __init__(self, name: str, damage: int, block: int, poke_type: str, cost: int = 1, effect: str = "", rarity: str = "common"):
@@ -176,7 +199,7 @@ class Card:
 
     def describe(self) -> str:
         parts = []
-        if self.damage > 0: parts.append(f"⚔️ {self.damage}")
+        if self.damage > 0: parts.append(f"⚔️ {self.damage} ({self.type})")
         if self.block > 0: parts.append(f"🛡️ {self.block}")
         if self.effect: parts.append(f"✨ {self.effect}")
         return " | ".join(parts) if parts else "Effektlos"
@@ -189,7 +212,10 @@ class Relic:
 
 class Pokemon:
     def __init__(self, name: str, poke_type: str, cards: List[Card], evo_de: Optional[str] = None, evo_level: int = 16):
-        self.name = name
+        # Generiere sofort einen lustigen, zufälligen Spitznamen
+        self.nickname = random.choice(FUNNY_NAMES.get(poke_type, ["Nugget"]))
+        self.species = name
+        self.name = f"{self.nickname} ({self.species})"
         self.type = poke_type
         self.cards = cards
         self.level = 1
@@ -213,14 +239,16 @@ class Pokemon:
         return bool(self.evo_de) and self.level >= self.evo_level
 
     def evolve(self):
-        log(f"✨ Oh? Dein {self.name} entwickelt sich zu {self.evo_de}!")
-        self.name = self.evo_de
+        old_name = self.name
+        self.species = self.evo_de
+        self.name = f"{self.nickname} ({self.species})"
         self.evo_de = None
         self.max_hp += 25
         self.hp = self.max_hp
         for c in self.cards:
             c.damage = int(c.damage * 1.4)
             c.block = int(c.block * 1.4)
+        log(f"✨ Oh? Evolution! {old_name} wurde zu {self.name}!")
 
 class Player:
     def __init__(self):
@@ -251,23 +279,23 @@ ALL_CARDS = {
 
 ENEMIES = {
     1: [
-        {"name": "Rattfratz", "api": "rattata", "hp": (30, 45), "type": "Normal", "attacks": [("Biss", 6), ("Ruckzuckhieb", 9)]},
-        {"name": "Zubat", "api": "zubat", "hp": (28, 40), "type": "Gift", "attacks": [("Blutsauger", 5), ("Flügelangriff", 8)]}
+        {"name": "Rattfratz", "api": "rattata", "hp": (30, 45), "type": "Normal", "attacks": [("Biss", 6, "Normal"), ("Ruckzuckhieb", 9, "Normal")]},
+        {"name": "Zubat", "api": "zubat", "hp": (28, 40), "type": "Gift", "attacks": [("Blutsauger", 5, "Normal"), ("Flügelangriff", 8, "Flug")]}
     ],
     2: [
-        {"name": "Rattikarl", "api": "raticate", "hp": (60, 80), "type": "Normal", "attacks": [("Hyperfang", 14), ("Tackle", 10)]},
-        {"name": "Golbat", "api": "golbat", "hp": (65, 85), "type": "Flug", "attacks": [("Giga-Sauger", 12), ("Luftschneider", 16)]}
+        {"name": "Rattikarl", "api": "raticate", "hp": (60, 80), "type": "Normal", "attacks": [("Hyperfang", 14, "Normal"), ("Tackle", 10, "Normal")]},
+        {"name": "Golbat", "api": "golbat", "hp": (65, 85), "type": "Flug", "attacks": [("Giga-Sauger", 12, "Pflanze"), ("Luftschneider", 16, "Flug")]}
     ],
     3: [
-        {"name": "Garados", "api": "gyarados", "hp": (120, 150), "type": "Wasser", "attacks": [("Hydropumpe", 24), ("Biss", 16)]},
-        {"name": "Gengar", "api": "gengar", "hp": (110, 140), "type": "Geist", "attacks": [("Spukball", 22), ("Hypnose", 14)]}
+        {"name": "Garados", "api": "gyarados", "hp": (120, 150), "type": "Wasser", "attacks": [("Hydropumpe", 24, "Wasser"), ("Biss", 16, "Normal")]},
+        {"name": "Gengar", "api": "gengar", "hp": (110, 140), "type": "Geist", "attacks": [("Spukball", 22, "Geist"), ("Hypnose", 14, "Psycho")]}
     ]
 }
 
 BOSSES = {
-    1: {"name": "Relaxo", "api": "snorlax", "hp": 130, "type": "Normal", "attacks": [("Bodyslam", 15), ("Erholung", 8)]},
-    2: {"name": "Bisaflor", "api": "venusaur", "hp": 200, "type": "Pflanze", "attacks": [("Faunastatue", 22), ("Solarstrahl", 30)]},
-    3: {"name": "Mewtwo", "api": "mewtwo", "hp": 300, "type": "Psycho", "attacks": [("Psychokinese", 35), ("Amnesie", 20)]}
+    1: {"name": "Relaxo", "api": "snorlax", "hp": 130, "type": "Normal", "attacks": [("Bodyslam", 15, "Normal"), ("Erholung", 8, "Normal")]},
+    2: {"name": "Bisaflor", "api": "venusaur", "hp": 200, "type": "Pflanze", "attacks": [("Faunastatue", 22, "Pflanze"), ("Solarstrahl", 30, "Pflanze")]},
+    3: {"name": "Mewtwo", "api": "mewtwo", "hp": 300, "type": "Psycho", "attacks": [("Psychokinese", 35, "Psycho"), ("Amnesie", 20, "Normal")]}
 }
 
 # ───────────────────────── STS MAP ENGINE ─────────────────────────
@@ -277,16 +305,13 @@ def generate_sts_map(act: int) -> List[List[Dict]]:
     node_types = ["combat", "combat", "event", "rest", "shop"]
     grid = []
     
-    # 8 Standard-Etagen generieren
     for row in range(8):
         row_nodes = []
         for col in range(3):
-            # Erste Etage immer Kampf zur fairen Vorbereitung
             ntype = "combat" if row == 0 else random.choice(node_types)
             row_nodes.append({"type": ntype, "col": col, "row": row})
         grid.append(row_nodes)
         
-    # Etage 9 ist immer der Bosskampf
     grid.append([
         {"type": "empty", "col": 0, "row": 8},
         {"type": "boss", "col": 1, "row": 8},
@@ -316,21 +341,27 @@ def start_game(starter_key: str):
     st.session_state.current_col = -1
     st.session_state.phase = "map"
     log(f"🎮 Abenteuer gestartet mit {poke.name}!")
-    st.toggle("rerun_trigger", value=not st.session_state.get("rerun_trigger", False))
+    st.rerun()
 
 def next_turn():
     p = st.session_state.player
-    # Gegner führt geplante Attacke aus
     enemy = st.session_state.enemy
-    intent_name, intent_dmg = enemy["intent"]
-    
-    absorbed = min(st.session_state.block, intent_dmg)
-    final_damage = max(0, intent_dmg - absorbed)
-    
-    # Schaden auf aktives Pokémon anrechnen
     active_poke = p.team[0]
+    
+    # Gegner führt geplante Attacke aus
+    intent_name, base_dmg, intent_type = enemy["intent"]
+    
+    # Typen-Multiplikator für gegnerische Attacke berechnen
+    mult, msg = get_damage_multiplier(intent_type, active_poke.type)
+    final_intent_dmg = int(base_dmg * mult)
+    
+    absorbed = min(st.session_state.block, final_intent_dmg)
+    final_damage = max(0, final_intent_dmg - absorbed)
+    
     active_poke.hp = max(0, active_poke.hp - final_damage)
-    log(f"💥 {enemy['name']} setzt {intent_name} ein! Verursacht {intent_dmg} Schaden ({absorbed} geblockt).")
+    
+    type_effect_log = f" ({msg})" if msg else ""
+    log(f"💥 {enemy['name']} setzt {intent_name} ({intent_type}) ein! Verursacht {final_intent_dmg} DMG{type_effect_log} [{absorbed} geblockt].")
     
     if active_poke.hp <= 0:
         st.session_state.phase = "gameover"
@@ -340,7 +371,6 @@ def next_turn():
     st.session_state.block = 0
     st.session_state.energy = 3
     st.session_state.hand = random.sample(p.deck, min(5, len(p.deck)))
-    # Neue zufällige Absicht für den Gegner wählen
     enemy["intent"] = random.choice(enemy["attacks_list"])
 
 # ───────────────────────── CORE INTERFACE ─────────────────────────
@@ -368,7 +398,7 @@ with st.sidebar:
 # SCREEN ROUTER
 if st.session_state.phase == "start":
     st.markdown("# ⚔️ PokéSpire – Roguelike Deckbuilder")
-    st.markdown("### Wähle dein Starter-Pokémon für den Aufstieg:")
+    st.markdown("### Wähle dein Starter-Pokémon für den Aufstieg (Spitznamen werden ausgewürfelt!):")
     
     c1, c2, c3 = st.columns(3)
     starters = [("bisasam", "Bisasam", "🌿 Pflanze"), ("glumanda", "Glumanda", "🔥 Feuer"), ("schiggy", "Schiggy", "💧 Wasser")]
@@ -377,7 +407,6 @@ if st.session_state.phase == "start":
             st.image(get_sprite_url(key), use_container_width=True)
             if st.button(f"{name} ({desc})", use_container_width=True, type="primary"):
                 start_game(key)
-                st.rerun()
 
 elif st.session_state.phase == "map":
     st.markdown("## 🗺️ Wähle deinen Pfad")
@@ -387,7 +416,6 @@ elif st.session_state.phase == "map":
     cur_row = st.session_state.current_row
     cur_col = st.session_state.current_col
     
-    # Rendere die Karte von oben (Boss) nach unten (Start)
     for row_idx in range(len(gmap)-1, -1, -1):
         cols = st.columns(3)
         for col_idx in range(3):
@@ -395,14 +423,12 @@ elif st.session_state.phase == "map":
             if node["type"] == "empty":
                 continue
                 
-            # Validierung der Erreichbarkeit (Slay the Spire Style)
             is_clickable = False
             if cur_row == -1 and row_idx == 0:
-                is_clickable = True # Erste Reihe frei wählbar
+                is_clickable = True
             elif row_idx == cur_row + 1 and (abs(col_idx - cur_col) <= 1 or cur_row == 7):
-                is_clickable = True # Nur direkt verbundene Nachbarentagen spielbar
+                is_clickable = True
                 
-            # CSS Styling festlegen
             status_class = "map-node"
             if is_clickable: status_class += " node-active"
             if row_idx == cur_row and col_idx == cur_col: status_class += " node-current"
@@ -417,24 +443,13 @@ elif st.session_state.phase == "map":
                     st.session_state.current_row = row_idx
                     st.session_state.current_col = col_idx
                     
-                    # Phase triggern
-                    if node["type"] == "combat":
+                    if node["type"] in ["combat", "boss"]:
                         p = st.session_state.player
-                        cfg = random.choice(ENEMIES[p.act])
-                        hp_val = random.randint(*cfg["hp"])
+                        cfg = BOSSES[p.act] if node["type"] == "boss" else random.choice(ENEMIES[p.act])
+                        hp_val = cfg["hp"] if node["type"] == "boss" else random.randint(*cfg["hp"])
+                        
                         st.session_state.enemy = {
                             "name": cfg["name"], "hp": hp_val, "max_hp": hp_val, "type": cfg["type"],
-                            "attacks_list": cfg["attacks"], "intent": random.choice(cfg["attacks"]), "api": cfg["api"]
-                        }
-                        st.session_state.hand = random.sample(p.deck, min(5, len(p.deck)))
-                        st.session_state.energy = 3
-                        st.session_state.block = 0
-                        st.session_state.phase = "combat"
-                    elif node["type"] == "boss":
-                        p = st.session_state.player
-                        cfg = BOSSES[p.act]
-                        st.session_state.enemy = {
-                            "name": cfg["name"], "hp": cfg["hp"], "max_hp": cfg["hp"], "type": cfg["type"],
                             "attacks_list": cfg["attacks"], "intent": random.choice(cfg["attacks"]), "api": cfg["api"]
                         }
                         st.session_state.hand = random.sample(p.deck, min(5, len(p.deck)))
@@ -460,8 +475,8 @@ elif st.session_state.phase == "combat":
     col_p, col_mid, col_e = st.columns([5, 1, 5])
     
     with col_p:
-        st.markdown(f"#### 👤 Dein Pokémon: {active_poke.name}")
-        st.image(get_sprite_url(active_poke.name), width=180)
+        st.markdown(f"#### 👤 {active_poke.name}")
+        st.image(get_sprite_url(active_poke.species), width=180)
         st.markdown(hp_bar(active_poke.hp, active_poke.max_hp), unsafe_allow_html=True)
         st.markdown(f"🛡️ **Block:** {st.session_state.block} | ⚡ **Energie:** {st.session_state.energy}/3")
         
@@ -469,15 +484,14 @@ elif st.session_state.phase == "combat":
         st.markdown("<h2 style='text-align:center; padding-top:60px;'>VS</h2>", unsafe_allow_html=True)
         
     with col_e:
-        st.markdown(f"#### 👾 Wildes Pokémon: {enemy['name']}")
+        st.markdown(f"#### 👾 Wildes {enemy['name']} {badge(enemy['type'], type_color(enemy['type']))}", unsafe_allow_html=True)
         st.image(get_sprite_url(enemy["api"]), width=180)
         st.markdown(hp_bar(enemy["hp"], enemy["max_hp"]), unsafe_allow_html=True)
-        st.markdown(f"📢 **Absicht:** {enemy['intent'][0]} (💥 {enemy['intent'][1]} DMG)")
+        st.markdown(f"📢 **Absicht:** {enemy['intent'][0]} (💥 {enemy['intent'][1]} DMG, Typ: {enemy['intent'][2]})")
 
     st.markdown("---")
     st.markdown("### 🃏 Deine Handkarten:")
     
-    # Handkarten ausspielen
     if st.session_state.hand:
         card_cols = st.columns(len(st.session_state.hand))
         for idx, card in enumerate(list(st.session_state.hand)):
@@ -494,15 +508,20 @@ elif st.session_state.phase == "combat":
                     st.session_state.energy -= card.cost
                     st.session_state.hand.pop(idx)
                     
-                    # Effekte abrechnen
+                    # Effekte abrechnen mit Typen-Wechselwirkung
                     if card.damage > 0:
-                        enemy["hp"] = max(0, enemy["hp"] - card.damage)
-                        log(f"⚔️ {active_poke.name} nutzt {card.name} und fügt {enemy['name']} {card.damage} DMG zu.")
+                        mult, msg = get_damage_multiplier(card.type, enemy["type"])
+                        final_dmg = int(card.damage * mult)
+                        
+                        enemy["hp"] = max(0, enemy["hp"] - final_dmg)
+                        type_effect_log = f" ({msg})" if msg else ""
+                        log(f"⚔️ {active_poke.name} nutzt {card.name}! Verursacht {final_dmg} DMG an {enemy['name']}{type_effect_log}.")
+                        
                     if card.block > 0:
                         st.session_state.block += card.block
                         log(f"🛡️ {active_poke.name} baut {card.block} Block auf.")
                         
-                    # Siegbedingung prüfen
+                    # Siegbedingung prüfen (MIT FIX für current_row Überprüfung)
                     if enemy["hp"] <= 0:
                         log(f"🏆 {enemy['name']} wurde besiegt!")
                         p.gold += random.randint(15, 30)
@@ -511,17 +530,19 @@ elif st.session_state.phase == "combat":
                         if active_poke.can_evolve():
                             active_poke.evolve()
                             
-                        # Wenn Boss besiegt wurde, rücke in nächsten Akt vor
-                        if gmap[st.session_state.current_row][st.session_state.current_col]["type"] == "boss":
-                            p.act += 1
-                            if p.act > 3:
-                                st.session_state.phase = "win"
-                                st.rerun()
-                            st.session_state.game_map = generate_sts_map(p.act)
-                            st.session_state.current_row = -1
-                            st.session_state.current_col = -1
-                            log(f"👑 Akt {p.act} erreicht!")
-                            
+                        # Überprüfung, ob wir eine valide Node auf der Karte abrechnen
+                        if st.session_state.current_row >= 0:
+                            current_node = gmap[st.session_state.current_row][st.session_state.current_col]
+                            if current_node["type"] == "boss":
+                                p.act += 1
+                                if p.act > 3:
+                                    st.session_state.phase = "win"
+                                    st.rerun()
+                                st.session_state.game_map = generate_sts_map(p.act)
+                                st.session_state.current_row = -1
+                                st.session_state.current_col = -1
+                                log(f"👑 Akt {p.act} erreicht!")
+                                
                         st.session_state.phase = "map"
                         st.rerun()
                     st.rerun()
@@ -535,18 +556,16 @@ elif st.session_state.phase == "rest":
     st.markdown("## 🏕️ Erholung am Lagerfeuer")
     active_poke = st.session_state.player.team[0]
     
-    st.markdown(f"Dein {active_poke.name} ist erschöpft. Was möchtest du tun?")
+    st.markdown(f"Dein {active_poke.name} ruht sich aus. Was möchtest du tun?")
     c1, c2 = st.columns(2)
     with c1:
         heal_amt = int(active_poke.max_hp * 0.4)
-        if st.button(f"💊 Ausruhen (+{heal_amt} HP)", use_container_width=True):
+        if st.button(f"💊 Wunden lecken (+{heal_amt} HP)", use_container_width=True):
             active_poke.hp = min(active_poke.max_hp, active_poke.hp + heal_amt)
-            log(f"🏕️ Pokémon hat sich ausgeruht.")
+            log(f"🏕️ {active_poke.name} hat am Lagerfeuer gechillt.")
             st.session_state.phase = "map"
             st.rerun()
     with c2:
-        if st.button("⬆️ Schmieden (Karten-Upgrade im kommenden Update)", use_container_width=True, disabled=True):
-            pass
         if st.button("Weiterreisen", use_container_width=True):
             st.session_state.phase = "map"
             st.rerun()
@@ -555,8 +574,7 @@ elif st.session_state.phase == "shop":
     st.markdown("## 🏪 Pokémon Supermarkt")
     p = st.session_state.player
     st.markdown(f"Dein Gold: **{p.gold} ₽**")
-    
-    st.info("Der Händler packt gerade die Regale aus! Komm auf der nächsten Etage wieder vorbei.")
+    st.info("Der Verkäufer pennt. Komm auf der nächsten Etage wieder vorbei!")
     if st.button("Zurück zur Karte", use_container_width=True):
         st.session_state.phase = "map"
         st.rerun()
@@ -564,23 +582,20 @@ elif st.session_state.phase == "shop":
 elif st.session_state.phase == "event":
     st.markdown("## ❓ Mysteriöse Begegnung")
     p = st.session_state.player
-    st.markdown("Du triffst auf einen reisenden Professor, der dir ein Item anbietet.")
-    
-    if st.button("Nimm das Geschenk an (+20 Gold)", use_container_width=True):
+    st.markdown("Du triffst einen skurrilen Angler, der dir ein paar Münzen zusteckt.")
+    if st.button("Münzen einstecken (+20 Gold)", use_container_width=True):
         p.gold += 20
         st.session_state.phase = "map"
         st.rerun()
 
 elif st.session_state.phase == "gameover":
     st.markdown("<h1 style='color:#f56565 !important; text-align:center;'>💀 GAME OVER 💀</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center;'>Dein Pokémon wurde besiegt. Der Turm hat gewonnen.</p>", unsafe_allow_html=True)
     if st.button("🔄 Neues Abenteuer wagen", use_container_width=True, type="primary"):
         st.session_state.clear()
         st.rerun()
 
 elif st.session_state.phase == "win":
     st.markdown("<h1 style='color:#48bb78 !important; text-align:center;'>🏆 SIEG! 🏆</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center;'>Unglaublich! Du hast den PokéSpire erklommen und alle Bosse bezwungen!</p>", unsafe_allow_html=True)
     if st.button("🔄 Erneut spielen", use_container_width=True, type="primary"):
         st.session_state.clear()
         st.rerun()
